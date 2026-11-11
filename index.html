@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Indian ASCII Christmas Tree</title>
+<style>
+  body{margin:0;background:#000;color:#ffd98a;font:15px system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;gap:12px;padding:12px}
+  canvas{height:80vh;aspect-ratio:9/16;border-radius:10px;box-shadow:0 0 0 1px #222}
+  .row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;align-items:center}
+  button,select{background:#2a1a4a;color:#ffd98a;border:1px solid #ffb703;border-radius:8px;padding:9px 16px;font:inherit;cursor:pointer}
+  button:hover{background:#3b2468}
+  #st{opacity:.8;min-width:200px}
+</style></head><body>
+<canvas id="cv" width="1080" height="1920"></canvas>
+<div class="row">
+  <select id="mode">
+    <option value="mk">Making-of: code types, tree builds</option>
+    <option value="fin">Final tree (glowing, snowing)</option>
+  </select>
+  <label>Song <input type="file" id="song" accept="audio/*"></label> <label>start at <input id="off" type="number" value="0" min="0" style="width:56px"> s</label>
+  <button id="play">▶ Preview</button>
+  <button id="rec">● Record reel &amp; download</button>
+  <span id="st">Ready. 24 s, 1080×1920, no voiceover, silent until you load a song.</span>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const cv = $('cv'), g = cv.getContext('2d');
+const W = 1080, H = 1920, D = 24, TAU = Math.PI * 2;
+const cl = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+let seed = 11; const rnd = () => (seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296;
+const pick = a => a[Math.floor(rnd() * a.length)];
+
+// ---------- build stages: start, duration (seconds of the making-of) ----------
+const ST = [{s:.3,d:1.5},{s:1.8,d:.6},{s:2.4,d:5.5},{s:7.9,d:3.2},{s:11.1,d:3},{s:14.1,d:2},{s:16.1,d:2.5},{s:18.6,d:1.5},{s:0,d:1}];
+const GOLD = '#ffc83d';
+const CW = 6, CH = 10, COLS = 180, MAXR = 192, FONT = '10px Consolas,"DejaVu Sans Mono","Courier New",monospace';
+const HT = 10, RB = 4.6, PITCH = .26;
+
+// ---------- a real 3D tree: a point cloud with normals, projected into a fine ASCII grid ----------
+const P = { x: [], y: [], z: [], nx: [], ny: [], nz: [], r: [], g: [], b: [], k: [], st: [], o: [], tw: [], ph: [], ch: [] };
+const nrm = (x, y, z) => { const l = Math.hypot(x, y, z) || 1; return [x / l, y / l, z / l]; };
+const add = (x, y, z, n, c, k, st, o, tw = 0, ch = 0, ph = rnd() * TAU) => {
+  P.x.push(x); P.y.push(y); P.z.push(z); P.nx.push(n[0]); P.ny.push(n[1]); P.nz.push(n[2]);
+  P.r.push(c[0]); P.g.push(c[1]); P.b.push(c[2]); P.k.push(k); P.st.push(st); P.o.push(o); P.tw.push(tw); P.ph.push(ph); P.ch.push(ch);
+};
+const env = y => RB * Math.max(.05, 1 - (y + .4) / (HT + .3)); // cone through the branch tips
+const rv = () => nrm(rnd() - .5, rnd() - .5, rnd() - .5);
+const gauss = () => (rnd() + rnd() + rnd() - 1.5) / .75;
+const BAUBLE = [[225,30,45],[255,200,61],[225,30,45],[255,77,141],[255,140,26],[45,226,200],[225,30,45],[232,121,249]];
+const LIGHTS = [[255,236,190],[255,200,61],[255,236,190],[255,70,60],[90,255,120],[90,150,255]];
+
+// 0 rangoli mandala on the floor, ringed by a dotted platform
+const rangoli = (r, th) => {
+  if (Math.abs(r - (5.1 + .3 * Math.cos(16 * th))) < .06) return [[255,200,61], '*'];
+  if (Math.abs(r - 5.5) < .035) return [[255,140,26], 'o'];
+  if (r > 4.6 && r < 4.95 && Math.cos(24 * th) > 0) return [[255,77,141], '#'];
+  if (Math.abs(r - 4.25) < .04 && Math.cos(32 * th) > .7) return [[255,255,255], 'O'];
+  if (r < 4 && Math.abs(r - 3.7 * Math.abs(Math.cos(4 * th))) < .05) return [[45,226,200], '+'];
+  if (r < 3 && Math.abs(r - 2.4 * Math.abs(Math.cos(6 * th))) < .05) return [[232,121,249], '+'];
+  if (Math.abs(r - 1) < .04) return [[255,77,141], '.'];
+  if (r < .6) return [[255,200,61], '*'];
+  if (r > 5.8 && r < 5.9 && Math.cos(60 * th) > .2) return [[210,175,110], '.'];
+  if (Math.abs(r - 6.3) < .025) return [[120,100,70], '.'];
+  if (Math.abs(r - 6.0) < .02 && Math.cos(90 * th) > 0) return [[90,75,55], '.'];
+  return null;
+};
+for (let r = .05; r < 6.4; r += .028) {
+  const n = Math.max(8, Math.round(TAU * r / .04));
+  for (let j = 0; j < n; j++) { const th = j / n * TAU, h = rangoli(r, th); if (h) add(r * Math.cos(th), .02, r * Math.sin(th), [0, 1, 0], h[0], 6, 0, r / 6.4 * .98, 0, h[1].charCodeAt(0)); }
+}
+// 1 trunk
+for (let i = 0; i < 500; i++) { const a = rnd() * TAU, y = rnd() * 1.5; add(.38 * Math.cos(a), y, .38 * Math.sin(a), [Math.cos(a), 0, Math.sin(a)], [120 + rnd() * 30, 76 + rnd() * 20, 38], 1, 1, y / 1.5 * .98); }
+// 2 branches, tier by tier, drooping with feathery needles; dark inner fill so gaps are never empty
+const NT = 12;
+for (let k = 0; k < NT; k++) {
+  const y0 = 1.2 + (HT - 2.2) * Math.pow(k / NT, .92), Rk = env(y0), nb = Math.round(12 + 8 * (1 - k / NT));
+  for (let j = 0; j < nb; j++) {
+    const a = (j + rnd() * .5 + (k % 2) * .5) / nb * TAU, ca = Math.cos(a), sa = Math.sin(a), droop = .6 + .35 * rnd(), cnt = Math.round((300 + Rk * 110) * (k > 6 ? .5 : 1));
+    for (let q = 0; q < cnt; q++) {
+      const t = .08 + .92 * Math.sqrt(rnd()), r = t * Rk * 1.05, w = .1 + .5 * t, l = (rnd() - .5) * 2 * w;
+      const y = y0 + .4 * (1 - t) - droop * t * t + (rnd() - .5) * .3, tone = cl(t * .75 + rnd() * .25);
+      add(ca * r - sa * l, y, sa * r + ca * l, nrm(ca * .95 + (rnd() - .5) * .25, .5, sa * .95 + (rnd() - .5) * .25),
+        [14 + tone * 64 + k * 2, 62 + tone * 128 + k * 4, 40 + tone * 44 - k], 0, 2, (k + t * .9) / NT * .98);
+    }
+  }
+}
+for (let i = 0; i < 9000; i++) { const y = 1.2 + rnd() * (HT - 1.4), a = rnd() * TAU, r = env(y) * .75 * Math.sqrt(rnd()); add(r * Math.cos(a), y, r * Math.sin(a), nrm(Math.cos(a), .6, Math.sin(a)), [10, 48 + rnd() * 26, 22], 0, 2, (y - 1.2) / (HT - 1.4) * .98); }
+for (let i = 0; i < 130; i++) { const y = 8.9 + rnd() * 1.6, a = rnd() * TAU, r = .4 * (10.5 - y) / 1.6 * rnd(); add(r * Math.cos(a), y, r * Math.sin(a), nrm(Math.cos(a), .8, Math.sin(a)), [40 + rnd() * 30, 150 + rnd() * 50, 70], 0, 2, .97); }
+// 3 garlands: two clean beaded spirals around the cone
+for (let s2 = 0; s2 < 2; s2++) for (let i = 0; i < 480; i++) {
+  const u = i / 480, y = 1 + (HT - 2) * u, a = 5 * TAU * u + s2 * Math.PI, r = env(y) + .2;
+  add(r * Math.cos(a), y, r * Math.sin(a), [Math.cos(a), .3, Math.sin(a)], i % 2 ? [255,150,20] : [255,215,60], 2, 3, u * .99);
+}
+// 4 baubles (lit spheres) and fairy lights
+const placed = [];
+for (let n = 0; n < 18; n++) {
+  let y, ang, cx, cz, tries = 0;
+  do { y = 1.4 + rnd() * 6.4; ang = rnd() * TAU; const r = env(y) * .95 + .1; cx = r * Math.cos(ang); cz = r * Math.sin(ang); } while (placed.some(p => Math.hypot(p[0] - cx, p[1] - y, p[2] - cz) < 1.5) && ++tries < 40);
+  placed.push([cx, y, cz]);
+  const c = BAUBLE[n % 8], o = rnd() * .97, k = 1 + Math.floor(rnd() * 4), ph = rnd() * TAU;
+  for (let q = 0; q < 70; q++) { const v = rv(); add(cx + v[0] * .17, y + v[1] * .17, cz + v[2] * .17, v, c, 3, 4, o, k, 0, ph); }
+}
+// fairy lights: many, tiny, warm and multicoloured, spread evenly
+for (let n = 0; n < 260; n++) { const y = 1.2 + 7 * Math.pow(rnd(), 1.15), a = rnd() * TAU, r = env(y) * (.9 + .12 * rnd()) + .05; add(r * Math.cos(a), y, r * Math.sin(a), [0, 1, 0], LIGHTS[n % 6], 4, 4, rnd() * .97, 1 + Math.floor(rnd() * 4), n % 6); }
+// 5 the star: a lantern with 6 long and 8 short spikes
+const SP = [[1,0,0,.55],[-1,0,0,.55],[0,1,0,.55],[0,-1,0,.55],[0,0,1,.55],[0,0,-1,.55], ...[1,-1].flatMap(a => [1,-1].flatMap(b => [1,-1].map(c => [...nrm(a, b, c), .38])))];
+for (const [dx, dy, dz, len] of SP) for (let q = 0; q < 90; q++) {
+  const t = rnd(), v = rv(), dot = v[0] * dx + v[1] * dy + v[2] * dz, pr = nrm(v[0] - dot * dx, v[1] - dot * dy, v[2] - dot * dz), rho = (1 - t) * .2;
+  add(dx * t * len + pr[0] * rho, HT + .3 + dy * t * len + pr[1] * rho, dz * t * len + pr[2] * rho, nrm(pr[0] + dx * .5, pr[1] + dy * .5, pr[2] + dz * .5), [255,205,70], 5, 5, rnd() * .9);
+}
+for (let q = 0; q < 110; q++) { const v = rv(); add(v[0] * .22, HT + .3 + v[1] * .22, v[2] * .22, v, [255,225,120], 5, 5, rnd() * .9); }
+// 4b a second ornament type: small saffron star lanterns hung among the branches
+for (let n = 0; n < 6; n++) {
+  const y = 2 + rnd() * 5, a = rnd() * TAU, r = env(y) * .97 + .2, cx = r * Math.cos(a), cz = r * Math.sin(a), o = rnd() * .97, c = pick([[255,150,20],[255,236,190],[255,200,61]]), k = 1 + Math.floor(rnd() * 4), ph = rnd() * TAU;
+  for (const [dx, dy, dz, len] of SP) for (let q = 0; q < 10; q++) {
+    const t = rnd(), v = rv(), dot = v[0] * dx + v[1] * dy + v[2] * dz, pr = nrm(v[0] - dot * dx, v[1] - dot * dy, v[2] - dot * dz), rho = (1 - t) * .09;
+    add(cx + dx * t * len * .26 + pr[0] * rho, y + dy * t * len * .26 + pr[1] * rho, cz + dz * t * len * .26 + pr[2] * rho, nrm(pr[0] + dx * .5, pr[1] + dy * .5, pr[2] + dz * .5), c, 3, 4, o, k, 0, ph);
+  }
+}
+// 6 gifts in Diwali colours with gold ribbons, and diyas around the platform
+const GIFT = [[200,30,110],[240,130,20],[20,170,160],[200,30,40],[50,70,210],[120,40,170],[220,180,50],[30,140,70],[200,30,40],[240,130,20]];
+GIFT.forEach((col, gi) => {
+  const a = (gi + rnd() * .5) / GIFT.length * TAU, r = 2.8 + rnd() * 2.2, cx = r * Math.cos(a), cz = r * Math.sin(a), yaw = rnd() * TAU, hx = .35 + rnd() * .25, hy = .28 + rnd() * .22, hz = .35 + rnd() * .25, o = gi / GIFT.length * .8;
+  const half = [hx, hy, hz], w = [hy * hz, hy * hz, hx * hz, hx * hz, hx * hy, hx * hy], tot = w.reduce((p, q) => p + q);
+  const ca = Math.cos(yaw), sa = Math.sin(yaw);
+  for (let q = 0; q < 3600; q++) {
+    let f = 0, u = rnd() * tot; while (u > w[f]) u -= w[f++]; const ax = f >> 1, sg = f & 1 ? 1 : -1, p = [0, 0, 0], nn = [0, 0, 0];
+    for (let m = 0; m < 3; m++) p[m] = m === ax ? sg * half[m] : (rnd() * 2 - 1) * half[m]; nn[ax] = sg;
+    if (ax === 1 && sg < 0) continue;
+    const rib = Math.abs(p[0]) < .13 * hx * 2 || Math.abs(p[2]) < .13 * hz * 2;
+    add(cx + p[0] * ca - p[2] * sa, hy + p[1], cz + p[0] * sa + p[2] * ca, [nn[0] * ca - nn[2] * sa, nn[1], nn[0] * sa + nn[2] * ca], rib ? [255,205,70] : (gi % 2 && (Math.floor((p[0] + p[1] + p[2]) * 7) & 1)) ? col.map(v => Math.min(255, v + 70)) : col, 10, 6, o + rnd() * .05);
+  }
+  for (let q = 0; q < 260; q++) { const v = rv(); add(cx + v[0] * .22, hy * 2 + .1 + Math.abs(v[1]) * .22, cz + v[2] * .22, v, [255,205,70], 10, 6, o + .06); }
+});
+for (let j = 0; j < 8; j++) {
+  const a = (j + .5) / 8 * TAU, cx = 5.75 * Math.cos(a), cz = 5.75 * Math.sin(a), o = j / 8 * .8;
+  for (let q = 0; q < 140; q++) { const v = rv(); v[1] = -Math.abs(v[1]) * .8; add(cx + v[0] * .36, .38 + v[1] * .36, cz + v[2] * .36, v, [205 + rnd() * 20, 100, 45], 7, 6, o); }
+  for (let q = 0; q < 40; q++) { const ly = rnd() * .55, sp = .13 * (1 - ly / .6) * (ly > .05 ? 1 : .5); add(cx + (rnd() - .5) * sp * 2, .5 + ly, cz + (rnd() - .5) * sp * 2, [0, 1, 0], ly > .35 ? [255,230,150] : [255,150,30], 8, 6, o + .01, 0, '()^*'.charCodeAt(q % 4)); }
+}
+// 8 falling snow and marigold petals (whole cycles per 24 s so the loop is seamless)
+for (let i = 0; i < 260; i++) { const a = rnd() * TAU, r = 2.5 + rnd() * 7.5; add(r * Math.cos(a), rnd() * 14, r * Math.sin(a), [0, 1, 0], i % 7 === 0 ? [255,170,30] : [235,235,235], 9, 8, 0, 1 + Math.floor(rnd() * 3)); }
+
+const N = P.x.length, F = a => Float32Array.from(a), U = a => Uint8Array.from(a);
+const X = F(P.x), Y = F(P.y), Z = F(P.z), NX = F(P.nx), NY = F(P.ny), NZ = F(P.nz), O = F(P.o), PHA = F(P.ph);
+const CR0 = U(P.r), CG0 = U(P.g), CB0 = U(P.b), K = U(P.k), S = U(P.st), TWK = U(P.tw), CHO = U(P.ch);
+const CELLS = COLS * MAXR;
+const zb = new Float32Array(CELLS), chA = new Uint8Array(CELLS), CR = new Uint8Array(CELLS), CG = new Uint8Array(CELLS), CB = new Uint8Array(CELLS);
+const FOL = ' .,:;-=+*x%#@', SPH = ' .:oO0@@@@@@';
+const LX = -.45, LY = .65, LZ = .62, HX = -.23, HY = .33, HZ = .92; // key light and half-vector, camera space
+const GLOWC = [[255,236,190],[255,200,61],[255,236,190],[255,70,60],[90,255,120],[90,150,255]];
+const sprites = GLOWC.map(c => { const s = document.createElement('canvas'); s.width = s.height = 48; const q = s.getContext('2d'), gr = q.createRadialGradient(24, 24, 0, 24, 24, 24);
+  gr.addColorStop(0, `rgba(${c},1)`); gr.addColorStop(.25, `rgba(${c},.45)`); gr.addColorStop(1, `rgba(${c},0)`); q.fillStyle = gr; q.fillRect(0, 0, 48, 48); return s; });
+const glowList = new Float32Array(2000); // x, y, colour, alpha per light that won a cell
+
+function render(tt, bt, mode) {
+  const mk = mode === 'mk', ROWS = mk ? 113 : 192, s = mk ? 68 : 80, yb = mk ? 950 : 1250, Dc = 24, f = s * Dc, cxp = W / 2;
+  const ang = TAU * 2.5 * tt / D, cA = Math.cos(ang), sA = Math.sin(ang), cP = Math.cos(PITCH), sP = Math.sin(PITCH), spin = TAU * 3 * tt / D, cS = Math.cos(spin), sS = Math.sin(spin);
+  const pr = ST.map(q => cl((bt - q.s) / q.d)), n = COLS * ROWS; let gl = 0, lights = 0;
+  zb.fill(-1e9, 0, n); chA.fill(0, 0, n);
+  for (let i = 0; i < N; i++) {
+    const p = pr[S[i]], o = O[i]; if (p <= o) continue;
+    const k = K[i]; let x = X[i], y = Y[i], z = Z[i], nx = NX[i], ny = NY[i], nz = NZ[i];
+    if (k === 8) { x += .04 * Math.sin(TAU * 12 * tt / D + PHA[i]); y = .5 + (y - .5) * (1 + .15 * Math.sin(TAU * 18 * tt / D + PHA[i] * 2)); }
+    else if (k === 9) { y = ((y - 14 * TWK[i] * tt / D) % 14 + 14) % 14 - 1.5; x += .5 * Math.sin(TAU * (1 + i % 3) * tt / D + PHA[i]); }
+    else if (k === 5) { const x0 = x, z0 = z; x = x0 * cS + z0 * sS; z = -x0 * sS + z0 * cS; const a = nx, b = nz; nx = a * cS + b * sS; nz = -a * sS + b * cS; }
+    const x1 = k === 9 ? x : x * cA + z * sA, z1 = k === 9 ? z : -x * sA + z * cA, y2 = y * cP - z1 * sP, z2 = y * sP + z1 * cP; // snow stays in camera space, so the spin never drags it
+    const sc = f / (Dc - z2), px = cxp + x1 * sc, py = yb - y2 * sc; if (px < 0 || py < 0) continue;
+    const c = (px / CW) | 0, r = (py / CH) | 0; if (c >= COLS || r >= ROWS) continue;
+    const id = r * COLS + c; if (z2 <= zb[id]) continue;
+    const nx1 = nx * cA + nz * sA, nz1 = -nx * sA + nz * cA, ny2 = ny * cP - nz1 * sP, nz2 = ny * sP + nz1 * cP;
+    const diff = Math.max(0, nx1 * LX + ny2 * LY + nz2 * LZ), fz = cl(.72 + .28 * (z2 + 6) / 12, .5, 1);
+    let r0 = CR0[i], g0 = CG0[i], b0 = CB0[i], lum, ch;
+    const tws = TWK[i] ? .5 + .5 * Math.sin(TAU * TWK[i] * tt / D + PHA[i]) : 1;
+    if (k === 0 || k === 1) { const hl = Math.pow(.5 + .5 * (nx1 * LX + ny2 * LY + nz2 * LZ), 2); lum = (.12 + .95 * hl) * fz; const m = .25 + lum * .8; r0 *= m; g0 *= m; b0 *= m; ch = FOL.charCodeAt(3 + Math.min(8, lum * lum * 9 | 0)); }
+    else if (k === 2) { lum = .4 + .45 * diff; r0 *= lum * fz; g0 *= lum * fz; b0 *= lum * fz; ch = diff > .35 ? 79 : 111; }
+    else if (k === 3 || k === 5 || k === 10) {
+      const spec = Math.pow(Math.max(0, nx1 * HX + ny2 * HY + nz2 * HZ), k === 10 ? 12 : 24), base = (k === 5 ? .6 : k === 10 ? .2 : .3) + .8 * diff, em = k === 3 ? .6 + .6 * tws : k === 5 ? 1.1 : 1;
+      lum = cl(base * em * fz); r0 = r0 * lum + 255 * spec; g0 = g0 * lum + 255 * spec; b0 = b0 * lum + 255 * spec;
+      ch = k === 5 ? '%#@@'.charCodeAt(Math.min(3, (lum + spec) * 3.2 | 0)) : SPH.charCodeAt(Math.max(3, Math.min(11, (lum + spec) * 11.9 | 0)));
+    }
+    else if (k === 4) { const e = .45 + .75 * tws; r0 *= e; g0 *= e; b0 *= e; ch = tws > .55 ? 42 : 43; lights++; if (tws > .5 && gl < 1997) { glowList[gl++] = px; glowList[gl++] = py; glowList[gl++] = CHO[i]; glowList[gl++] = tws; } }
+    else if (k === 6) { const m = .75 + .3 * fz; r0 *= m; g0 *= m; b0 *= m; ch = CHO[i]; }
+    else if (k === 7) { lum = (.3 + .9 * diff) * fz; r0 *= lum; g0 *= lum; b0 *= lum; ch = 111; }
+    else if (k === 8) { ch = CHO[i]; }
+    else { r0 *= fz; g0 *= fz; b0 *= fz; ch = z2 > 2 ? 42 : 46; }
+    if ((p - o) * ST[S[i]].d < .12 && k !== 9) { r0 = r0 * .3 + 180; g0 = g0 * .3 + 180; b0 = b0 * .3 + 180; }
+    zb[id] = z2; chA[id] = ch; CR[id] = Math.min(255, r0); CG[id] = Math.min(255, g0); CB[id] = Math.min(255, b0);
+  }
+  // draw the grid
+  g.font = FONT; g.textAlign = 'center'; g.textBaseline = 'alphabetic';
+  let letters = 0;
+  for (let id = 0; id < n; id++) {
+    const ch = chA[id]; if (!ch) continue; letters++;
+    g.fillStyle = `rgb(${CR[id]},${CG[id]},${CB[id]})`; g.fillText(String.fromCharCode(ch), (id % COLS) * CW + CW / 2, ((id / COLS | 0) + 1) * CH - 1);
+  }
+  // additive light: fairy-light halos, the star with its rays, the diya flames
+  const pj = (x, y, z) => { const x1 = x * cA + z * sA, z1 = -x * sA + z * cA, y2 = y * cP - z1 * sP, z2 = y * sP + z1 * cP, sc = f / (Dc - z2); return [cxp + x1 * sc, yb - y2 * sc, sc]; };
+  g.globalCompositeOperation = 'lighter';
+  for (let j = 0; j < gl; j += 4) { g.globalAlpha = .35 * glowList[j + 3]; g.drawImage(sprites[glowList[j + 2]], glowList[j] - 8, glowList[j + 1] - 8, 16, 16); }
+  g.globalAlpha = 1;
+  const glow = (px, py, rad, col) => { const gr = g.createRadialGradient(px, py, 0, px, py, rad); gr.addColorStop(0, col); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(px - rad, py - rad, rad * 2, rad * 2); };
+  if (pr[5] > .5) {
+    const [px, py, sc] = pj(0, HT + .3, 0), pulse = .85 + .15 * Math.sin(TAU * 3 * tt / D); glow(px, py, sc * 1.3, `rgba(255,190,70,${.42 * pulse})`);
+    g.save(); g.translate(px, py);
+    for (const [a, L] of [[0, 105], [Math.PI / 2, 105], [Math.PI / 4, 50], [-Math.PI / 4, 50]]) { g.save(); g.rotate(a); const gr = g.createLinearGradient(-L, 0, L, 0); gr.addColorStop(0, 'rgba(255,200,90,0)'); gr.addColorStop(.5, `rgba(255,225,140,${.9 * pulse})`); gr.addColorStop(1, 'rgba(255,200,90,0)'); g.fillStyle = gr; g.fillRect(-L, -1, 2 * L, 2); g.restore(); }
+    g.restore();
+  }
+  if (pr[6] > .5) for (let j = 0; j < 8; j++) { const a = (j + .5) / 8 * TAU, [px, py, sc] = pj(5.75 * Math.cos(a), .7, 5.75 * Math.sin(a)); glow(px, py, sc * .9, `rgba(255,150,40,${.4 + .15 * Math.sin(TAU * 12 * tt / D + j)})`); }
+  g.globalCompositeOperation = 'source-over';
+  return { letters, lights, ang: (ang * 180 / Math.PI) % 360 };
+}
+
+// ---------- background: pure black, a few faint stars ----------
+const stars = Array.from({ length: 60 }, () => ({ x: rnd() * W, y: rnd() * H * .6, s: 1 + rnd() * 1.5, k: 1 + Math.floor(rnd() * 4), ph: rnd() * TAU }));
+
+// ---------- the code panel (numpy-style, like the generator itself) ----------
+const CODE = [
+  '# rangoli floor: a polar mandala\nfor r in np.arange(0.05, 6.4, 0.028):\n    th = np.linspace(0, TAU, int(TAU * r / .04))\n    pts = mandala(r, th, gold, pink, teal)\n\n',
+  '# trunk\nth = rng.uniform(0, TAU, 500)\ntrunk = cylinder(0.38, h=1.5, th=th)\n\n',
+  '# branches, tier by tier\nfor b in range(nb):\n    a = TAU * b / nb + rng.normal(0, .1)\n    L = R * rng.uniform(0.82, 1.06)\n    n = int(300 + 110 * L)\n    d = np.array([np.cos(a), 0, np.sin(a)])\n    nrm = d * 0.95 + np.array([0, .5, 0])\n\n',
+  '# marigold garland\nu = np.linspace(0, 1, 1100)\nbeads = helix(u, turns=6, r=cone(u) + .2)\n\n',
+  '# baubles + fairy lights\nfor c in rng.choice(spots, 26):\n    spheres(c, r=.3, col=PALETTE[i % 8])\nlights = spots[:80]\n\n',
+  '# the star lantern\nspikes = [axes(6), diagonals(8)]\nplace(top, spikes, col=gold, glow=True)\n\n',
+  '# gifts + diyas\nfor g in range(6):\n    box(pos[g], size[g], ribbon=gold)\nfor a in range(8):\n    diya(a * TAU / 8, flame=True)\n\n',
+  'while True:\n    cam.orbit(3 * TAU / 24)\n    render(cells, ascii=True)',
+];
+const TOK = /(#.*|"[^"]*"|\b(?:for|in|while|True|range)\b|-?\d+\.?\d*)/;
+function drawCode(bt, y0) {
+  g.fillStyle = '#0a0a0a'; g.fillRect(0, y0, W, H - y0);
+  let text = '';
+  CODE.forEach((c, i) => { const p = cl((bt - ST[i].s) / (ST[i].d * .85)); if (p > 0) text += c.slice(0, Math.floor(p * c.length)); });
+  const lines = text.split('\n'), rows = Math.floor((H - y0 - 30) / 38), start = Math.max(0, lines.length - rows), LH = 38;
+  g.font = '27px Consolas,"Courier New",monospace';
+  const cols = { '#': '#5f5f6e', '"': '#ffd98a' };
+  lines.slice(start).forEach((ln, i) => {
+    const y = y0 + 40 + i * LH, cur = i === lines.length - start - 1;
+    if (cur) { g.fillStyle = 'rgba(255,60,60,.16)'; g.fillRect(0, y - 28, W, LH); }
+    g.fillStyle = cur ? '#ff5c5c' : '#444'; g.textAlign = 'right'; g.fillText(String(start + i + 1), 86, y);
+    g.textAlign = 'left'; let x = 112;
+    ln.split(TOK).forEach(tk => {
+      if (!tk) return;
+      g.fillStyle = /^(for|in|while|True|range)$/.test(tk) ? '#ff6ac1' : /^-?\d/.test(tk) ? '#ff8c1a' : cols[tk[0]] || '#e6e6f0';
+      g.fillText(tk, x, y); x += g.measureText(tk).width;
+    });
+    if (cur && Math.floor(bt * 3) % 2 === 0) { g.fillStyle = GOLD; g.fillRect(x + 3, y - 24, 13, 30); }
+  });
+}
+function hud(tt, st, y, big) {
+  g.textAlign = 'left'; g.font = (big ? 22 : 20) + 'px Consolas,monospace'; g.fillStyle = '#8c8c8c';
+  g.fillText('ascii-diwali-tree.py · 2026', 24, y);
+  g.fillStyle = '#5e5e5e'; g.fillText(`rotation ${st.ang.toFixed(2)}°    lights ${st.lights}    letters ${st.letters.toLocaleString('en-US')}`, 24, y + 30);
+  g.textAlign = 'right'; g.fillStyle = '#6f6f6f'; g.fillText('running · 30 fps', W - 24, y + 30);
+  g.fillStyle = '#ff5c8a'; g.fillText(`t ${tt.toFixed(2)}s`, W - 24, y);
+}
+
+// ---------- one frame: tt = animation clock, bt = build clock ----------
+function frame(tt, bt, mode) {
+  const mk = mode === 'mk';
+  g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+  { const cy = mk ? 560 : 880, wg = g.createRadialGradient(W / 2, cy, 40, W / 2, cy, 640); wg.addColorStop(0, 'rgba(255,140,50,.10)'); wg.addColorStop(1, 'rgba(255,140,50,0)'); g.fillStyle = wg; g.fillRect(0, 0, W, mk ? 1130 : H); }
+  g.fillStyle = '#fff';
+  for (const s of stars) { g.globalAlpha = .12 + .25 * Math.abs(Math.sin(TAU * s.k * tt / D + s.ph)); g.fillRect(s.x, s.y, s.s, s.s); }
+  g.globalAlpha = 1;
+  const st = render(tt, bt, mode);
+  for (let i = 0; i < 260; i++) { g.fillStyle = `rgba(255,225,190,${.04 + Math.random() * .07})`; g.fillRect(Math.random() * W, Math.random() * (mk ? 1130 : H), 1.5, 1.5); } // film grain
+  const a = cl((bt - ST[7].s) / ST[7].d);
+  g.globalAlpha = a; g.textAlign = 'center'; g.fillStyle = GOLD; g.shadowColor = GOLD; g.shadowBlur = 10;
+  if (mk) { g.font = 'bold 26px Consolas,monospace'; g.fillText('MERRY CHRISTMAS  ·  नाताळच्या हार्दिक शुभेच्छा!', W / 2, 1118); }
+  else { g.font = 'bold 34px Consolas,monospace'; g.fillText('M E R R Y   C H R I S T M A S', W / 2, 1530); g.font = '40px "Nirmala UI","Mangal","Noto Sans Devanagari",sans-serif'; g.fillText('नाताळच्या हार्दिक शुभेच्छा!', W / 2, 1585); }
+  g.shadowBlur = 0; g.globalAlpha = 1;
+  if (mk) { hud(tt, st, 1160, false); drawCode(bt, 1225); }
+  else {
+    hud(tt, st, 54, true);
+    g.textAlign = 'center'; g.fillStyle = GOLD; g.shadowColor = GOLD; g.shadowBlur = 16;
+    g.font = 'bold 72px Consolas,monospace'; g.fillText('LET CHRISTMAS', W / 2, 1700); g.fillText('FOLLOW YOU', W / 2, 1785);
+    g.shadowBlur = 0; g.font = '32px Consolas,monospace'; g.fillStyle = '#ffd98a'; g.fillText('~ an Indian Christmas ~', W / 2, 1850);
+  }
+}
+
+// ---------- music: your own song file (no built-in synth) ----------
+let ac, master, dest, songBuf = null;
+$('song').onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  ac = ac || new AudioContext(); songBuf = await ac.decodeAudioData(await f.arrayBuffer());
+  $('st').textContent = `Song loaded: ${f.name} (${songBuf.duration.toFixed(0)} s)`;
+};
+function startSong(t0) { // plays D seconds of the song from the chosen start second
+  if (!songBuf) return;
+  const s = ac.createBufferSource(); s.buffer = songBuf; const off = Math.min(+$('off').value || 0, Math.max(0, songBuf.duration - D));
+  const fade = ac.createGain(); fade.gain.setValueAtTime(1, t0 + D - 1.5); fade.gain.linearRampToValueAtTime(0, t0 + D);
+  s.connect(fade); fade.connect(master); s.start(t0, off, D);
+}
+
+// ---------- run / record ----------
+let running = false, idleT0 = performance.now();
+async function run(record) {
+  if (running) return; running = true;
+  ac = ac || new AudioContext(); await ac.resume();
+  master = ac.createGain(); master.gain.value = .9;
+  const comp = ac.createDynamicsCompressor(); master.connect(comp); comp.connect(ac.destination);
+  let rec, chunks = [], mime = '';
+  if (record) {
+    dest = ac.createMediaStreamDestination(); comp.connect(dest);
+    mime = ['video/mp4;codecs=avc1.640028,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'].find(m => MediaRecorder.isTypeSupported(m));
+    rec = new MediaRecorder(new MediaStream([...cv.captureStream(30).getVideoTracks(), ...dest.stream.getAudioTracks()]), { mimeType: mime, videoBitsPerSecond: 12e6 });
+    rec.ondataavailable = e => chunks.push(e.data);
+  }
+  const t0 = ac.currentTime + .15, mode = $('mode').value;
+  startSong(t0); if (rec) rec.start(1000);
+  await new Promise(done => {
+    const tick = () => {
+      const t = ac.currentTime - t0;
+      if (t >= D) return done();
+      const tt = Math.max(0, t); frame(tt, mode === "mk" ? tt : 1e9, mode); $('st').textContent = (record ? 'Recording ' : 'Playing ') + tt.toFixed(1) + ' / ' + D + ' s';
+      requestAnimationFrame(tick);
+    }; tick();
+  });
+  if (rec) {
+    await new Promise(r => { rec.onstop = r; rec.stop(); });
+    const ext = mime.includes('mp4') ? 'mp4' : 'webm', a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob(chunks, { type: mime })); a.download = `indian-christmas-${mode}.${ext}`; a.click();
+    $('st').textContent = 'Saved ' + a.download + (ext === 'webm' ? ' (webm: convert to mp4 for Instagram)' : '');
+  } else $('st').textContent = 'Done.';
+  running = false; idleT0 = performance.now();
+}
+$('play').onclick = () => run(false);
+$('rec').onclick = () => run(true);
+(function idle() { // finished picture, still twinkling, until a run starts
+  if (!running) frame(((performance.now() - idleT0) / 1000) % D, 1e9, $('mode').value);
+  requestAnimationFrame(idle);
+})();
+</script></body></html>
